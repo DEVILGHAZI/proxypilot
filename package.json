@@ -1,0 +1,33 @@
+{
+  "name": "proxypilot",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.18.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "bootstrap:env": "node infrastructure/scripts/bootstrap-env.mjs",
+    "db:generate": "pnpm --filter @proxypilot/database generate",
+    "db:migrate": "pnpm --filter @proxypilot/database migrate"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.6",
+    "typescript": "^5.9.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "msgpackr-extract",
+      "prisma",
+      "@node-rs/argon2"
+    ]
+  }
+}

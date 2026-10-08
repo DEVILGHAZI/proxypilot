@@ -1,0 +1,498 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Plan {
+  FREE
+  STARTER
+  PRO
+  BUSINESS
+  ENTERPRISE
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum ProviderType {
+  DATACENTER
+  RESIDENTIAL
+  ISP
+  MOBILE
+  CUSTOM
+}
+
+enum ProxyProtocol {
+  HTTP
+  HTTPS
+  SOCKS5
+}
+
+enum ProviderStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum ProxyStatus {
+  HEALTHY
+  DEGRADED
+  QUARANTINED
+  DISABLED
+}
+
+enum PoolStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum RotationStrategy {
+  RANDOM
+  ROUND_ROBIN
+  LEAST_LATENCY
+  WEIGHTED_HEALTH
+  STICKY_SESSION
+}
+
+enum RequestJobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum HealthCheckStatus {
+  SUCCESS
+  FAILED
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  PROXY_CREATED
+  PROXY_UPDATED
+  PROXY_DELETED
+  PROXY_DISABLED
+  PROXY_ENABLED
+  PROVIDER_CREATED
+  POLICY_CREATED
+  API_KEY_CREATED
+  API_KEY_REVOKED
+  SETTINGS_CHANGED
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  plan      Plan     @default(FREE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users          User[]
+  apiKeys        ApiKey[]
+  providers      Provider[]
+  proxies        Proxy[]
+  tags           Tag[]
+  pools          Pool[]
+  policies       Policy[]
+  proxySessions  ProxySession[]
+  requestJobs    RequestJob[]
+  auditLogs      AuditLog[]
+  usageMeters    UsageMeter[]
+  siteCheckRuns  SiteCheckRun[]
+}
+
+model User {
+  id             String     @id @default(cuid())
+  organizationId String
+  email          String     @unique
+  passwordHash   String
+  name           String
+  role           UserRole   @default(MEMBER)
+  status         UserStatus @default(ACTIVE)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  lastLoginAt    DateTime?
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  authSessions  AuthSession[]
+  apiKeys       ApiKey[]
+  proxySessions ProxySession[]
+  requestJobs   RequestJob[]
+  auditLogs     AuditLog[]
+  siteCheckRuns SiteCheckRun[]
+
+  @@index([organizationId])
+  @@index([status])
+}
+
+model AuthSession {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+  ip        String?
+  userAgent String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model ApiKey {
+  id             String    @id @default(cuid())
+  organizationId String
+  userId         String
+  name           String
+  keyHash        String    @unique
+  prefix         String
+  lastUsedAt     DateTime?
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+  revokedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requestJobs  RequestJob[]
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([prefix])
+}
+
+model Provider {
+  id                   String         @id @default(cuid())
+  organizationId       String
+  name                 String
+  type                 ProviderType
+  protocol             ProxyProtocol
+  metadata             Json           @default("{}")
+  credentialsEncrypted String?
+  status               ProviderStatus @default(ACTIVE)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  proxies      Proxy[]
+
+  @@index([organizationId])
+  @@index([status])
+}
+
+model Proxy {
+  id                   String        @id @default(cuid())
+  organizationId       String
+  providerId           String
+  host                 String
+  port                 Int
+  usernameEncrypted    String?
+  passwordEncrypted    String?
+  protocol             ProxyProtocol
+  country              String?
+  region               String?
+  city                 String?
+  status               ProxyStatus   @default(HEALTHY)
+  healthScore          Int           @default(100)
+  successCount         Int           @default(0)
+  failureCount         Int           @default(0)
+  timeoutCount         Int           @default(0)
+  connectionErrorCount Int           @default(0)
+  avgLatencyMs         Float?
+  lastSuccessAt        DateTime?
+  lastFailureAt        DateTime?
+  lastCheckedAt        DateTime?
+  cooldownUntil        DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  provider      Provider       @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  proxyTags     ProxyTag[]
+  poolProxies   PoolProxy[]
+  healthChecks  HealthCheck[]
+  proxySessions ProxySession[]
+  requestJobs   RequestJob[]
+  attempts      RequestAttempt[]
+  siteChecks    SiteCheck[]
+
+  @@index([organizationId])
+  @@index([providerId])
+  @@index([status])
+  @@index([cooldownUntil])
+  @@index([organizationId, status])
+}
+
+model Tag {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  proxyTags    ProxyTag[]
+
+  @@unique([organizationId, name])
+}
+
+model ProxyTag {
+  proxyId String
+  tagId   String
+
+  proxy Proxy @relation(fields: [proxyId], references: [id], onDelete: Cascade)
+  tag   Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([proxyId, tagId])
+  @@index([tagId])
+}
+
+model Pool {
+  id             String           @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  strategy       RotationStrategy @default(ROUND_ROBIN)
+  status         PoolStatus       @default(ACTIVE)
+  policyId       String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  policy       Policy?      @relation(fields: [policyId], references: [id], onDelete: SetNull)
+  poolProxies  PoolProxy[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([policyId])
+}
+
+model PoolProxy {
+  poolId  String
+  proxyId String
+
+  pool  Pool  @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  proxy Proxy @relation(fields: [proxyId], references: [id], onDelete: Cascade)
+
+  @@id([poolId, proxyId])
+  @@index([proxyId])
+}
+
+model Policy {
+  id                String           @id @default(cuid())
+  organizationId    String
+  name              String
+  strategy          RotationStrategy
+  timeoutMs         Int
+  maxRetries        Int
+  cooldownSeconds   Int
+  sessionTtlSeconds Int
+  maxConcurrency    Int
+  requestsPerSecond Int
+  enabled           Boolean          @default(true)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pools         Pool[]
+  proxySessions ProxySession[]
+  requestJobs   RequestJob[]
+
+  @@index([organizationId])
+  @@index([enabled])
+}
+
+model ProxySession {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  policyId       String
+  proxyId        String
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  lastUsedAt     DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  policy       Policy       @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  proxy        Proxy        @relation(fields: [proxyId], references: [id], onDelete: Cascade)
+  requestJobs  RequestJob[]
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([proxyId])
+  @@index([expiresAt])
+}
+
+model RequestJob {
+  id             String           @id @default(cuid())
+  organizationId String
+  userId         String
+  apiKeyId       String?
+  sessionId      String?
+  policyId       String?
+  proxyId        String?
+  domain         String
+  url            String
+  method         String
+  status         RequestJobStatus @default(QUEUED)
+  httpStatus     Int?
+  attempts       Int              @default(0)
+  latencyMs      Int?
+  errorCode      String?
+  createdAt      DateTime         @default(now())
+  completedAt    DateTime?
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apiKey       ApiKey?       @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+  session      ProxySession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  policy       Policy?       @relation(fields: [policyId], references: [id], onDelete: SetNull)
+  proxy        Proxy?        @relation(fields: [proxyId], references: [id], onDelete: SetNull)
+  attemptRows  RequestAttempt[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([domain])
+}
+
+model RequestAttempt {
+  id         String           @id @default(cuid())
+  requestId  String
+  proxyId    String?
+  attempt    Int
+  status     RequestJobStatus
+  httpStatus Int?
+  latencyMs  Int?
+  errorCode  String?
+  createdAt  DateTime         @default(now())
+
+  request RequestJob @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  proxy   Proxy?     @relation(fields: [proxyId], references: [id], onDelete: SetNull)
+
+  @@index([requestId])
+  @@index([proxyId])
+}
+
+model HealthCheck {
+  id           String            @id @default(cuid())
+  proxyId      String
+  status       HealthCheckStatus
+  latencyMs    Int?
+  httpStatus   Int?
+  errorCode    String?
+  errorMessage String?
+  checkedAt    DateTime          @default(now())
+
+  proxy Proxy @relation(fields: [proxyId], references: [id], onDelete: Cascade)
+
+  @@index([proxyId])
+  @@index([checkedAt])
+  @@index([proxyId, checkedAt])
+}
+
+model AuditLog {
+  id             String      @id @default(cuid())
+  organizationId String
+  userId         String?
+  action         AuditAction
+  resource       String
+  resourceId     String?
+  ip             String?
+  metadata       Json        @default("{}")
+  createdAt      DateTime    @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([userId])
+  @@index([action])
+}
+
+model UsageMeter {
+  id             String   @id @default(cuid())
+  organizationId String
+  metric         String
+  periodStart    DateTime
+  quantity       BigInt   @default(0)
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, metric, periodStart])
+  @@index([organizationId])
+}
+
+enum SiteCheckBrowser {
+  CHROME
+  PHONE
+  MIXED
+}
+
+enum SiteCheckStatus {
+  QUEUED
+  RUNNING
+  PASSED
+  FAILED
+}
+
+model SiteCheckRun {
+  id             String           @id @default(cuid())
+  organizationId String
+  userId         String
+  poolId         String
+  url            String
+  browser        SiteCheckBrowser
+  status         SiteCheckStatus  @default(QUEUED)
+  total          Int
+  passed         Int              @default(0)
+  failed         Int              @default(0)
+  createdAt      DateTime         @default(now())
+  completedAt    DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checks       SiteCheck[]
+
+  @@index([organizationId, createdAt])
+  @@index([userId])
+}
+
+model SiteCheck {
+  id          String          @id @default(cuid())
+  runId       String
+  proxyId     String
+  layout      String
+  status      SiteCheckStatus @default(QUEUED)
+  title       String?
+  scrolled    Boolean         @default(false)
+  latencyMs   Int?
+  errorCode   String?
+  createdAt   DateTime        @default(now())
+  completedAt DateTime?
+
+  run   SiteCheckRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  proxy Proxy        @relation(fields: [proxyId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([proxyId])
+}

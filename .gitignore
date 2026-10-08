@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.next/
+.turbo/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+packages/database/prisma/*.db
+.DS_Store
